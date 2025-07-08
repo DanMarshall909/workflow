@@ -1,0 +1,177 @@
+#!/bin/bash
+# Enhanced Pre-push hook to enforce repository push rules + CI monitoring setup
+# Install with: cp scripts/pre-push-hook-enhanced .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+
+set -e
+
+protected_branches="main"
+current_branch=$(git symbolic-ref HEAD | sed 's|refs/heads/||')
+push_command=$(ps -ocommand= -p $PPID)
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_header() { echo -e "${BLUE}🔍 $1${NC}"; }
+print_success() { echo -e "${GREEN}✅ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_error() { echo -e "${RED}❌ $1${NC}"; }
+print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
+
+print_header "Pre-push hook: Checking push rules for branch '$current_branch'"
+
+# Rule 1: Block direct pushes to main
+if [[ "$protected_branches" =~ "$current_branch" ]]; then
+    print_error "PUSH BLOCKED: Direct pushes to '$current_branch' are prohibited"
+    echo ""
+    echo "📋 Required process:"
+    echo "1. Switch to dev branch: git checkout dev"
+    echo "2. Make your changes on dev"
+    echo "3. Push to dev: git push origin dev"
+    echo "4. Create PR when ready: dev → main"
+    echo ""
+    print_error "This push has been blocked by pre-push hook"
+    exit 1
+fi
+
+# Rule 2: Only allow dev branch for development
+if [[ "$current_branch" != "dev" ]]; then
+    print_error "PUSH BLOCKED: Feature branches are not allowed"
+    echo ""
+    echo "📋 Required process:"
+    echo "1. Switch to dev branch: git checkout dev"
+    echo "2. Merge your changes: git merge $current_branch"
+    echo "3. Delete feature branch: git branch -D $current_branch"
+    echo "4. Push to dev: git push origin dev"
+    echo ""
+    print_error "This push has been blocked by pre-push hook"
+    exit 1
+fi
+
+# Rule 3: Dev branch - comprehensive checks
+if [[ "$current_branch" == "dev" ]]; then
+    print_success "ALLOWED: Pushing to dev branch"
+    
+    # Check for existing PR and its CI status
+    if command -v gh &> /dev/null && gh auth status &> /dev/null 2>&1; then
+        print_info "Checking for existing PR and CI status..."
+        
+        PR_NUMBER=$(gh pr list --head "$current_branch" --json number --jq '.[0].number' 2>/dev/null || echo "")
+        
+        if [[ -n "$PR_NUMBER" ]]; then
+            print_info "Found existing PR #$PR_NUMBER"
+            
+            # Check if previous CI runs failed
+            FAILING_CHECKS=$(gh pr checks "$PR_NUMBER" 2>/dev/null | grep -c "fail" || echo "0")
+            
+            if [[ "$FAILING_CHECKS" -gt 0 ]]; then
+                print_warning "Previous CI run has $FAILING_CHECKS failing check(s)"
+                print_warning "Are you pushing fixes for these failures? (y/N)"
+                read -r response
+                if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                    print_error "Push cancelled. Please fix CI failures first."
+                    print_info "View failures: gh pr view $PR_NUMBER --web"
+                    exit 1
+                fi
+            fi
+        fi
+    else
+        print_warning "GitHub CLI not available or not authenticated"
+        print_info "Install: https://cli.github.com/ and run: gh auth login"
+        print_info "For enhanced CI monitoring capabilities"
+    fi
+    
+    # Check if quality check script exists and run it
+    if [[ -f "./scripts/pr-quality-check.sh" ]]; then
+        print_info "Running pre-push quality checks..."
+        
+        # Try to fix line endings issue
+        if [[ -f "./scripts/pr-quality-check.sh" ]]; then
+            # Run with bash explicitly to avoid line ending issues
+            if ! bash "./scripts/pr-quality-check.sh" --pre-push 2>/dev/null; then
+                print_warning "Quality check script failed or had issues"
+                print_warning "Continue with basic checks? (y/N)"
+                read -r response
+                if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                    print_error "Push cancelled by user"
+                    exit 1
+                fi
+            fi
+        fi
+    else
+        print_warning "Quality check script not found - running basic checks"
+        
+        # Basic build check
+        if command -v dotnet &> /dev/null; then
+            print_info "Running basic build check..."
+            if ! dotnet build --verbosity quiet --no-restore; then
+                print_error "Build failed - please fix errors before pushing"
+                exit 1
+            fi
+            print_success "Build check passed"
+            
+            # Basic test check
+            print_info "Running basic test check..."
+            if ! dotnet test --no-build --verbosity quiet; then
+                print_error "Tests failed - please fix tests before pushing"
+                exit 1
+            fi
+            print_success "Test check passed"
+        fi
+    fi
+    
+    # Check commit message format for latest commit
+    latest_commit_msg=$(git log -1 --pretty=%B)
+    if ! echo "$latest_commit_msg" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
+        print_warning "Latest commit doesn't follow conventional commits format"
+        echo "Expected format: type(scope): description"
+        echo "Examples:"
+        echo "  feat: add new feature"
+        echo "  fix: resolve CI failures"
+        echo "  docs: update README"
+        echo ""
+        echo "Continue anyway? (y/N)"
+        read -r response
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
+            print_error "Push cancelled by user"
+            exit 1
+        fi
+    fi
+    
+    # Setup post-push CI monitoring
+    if [[ -f "./scripts/post-push-ci-monitor.sh" ]]; then
+        print_info "Setting up post-push CI monitoring..."
+        
+        # Install post-commit hook to trigger CI monitoring
+        if [[ ! -f ".git/hooks/post-commit" ]]; then
+            cat > .git/hooks/post-commit << 'EOF'
+#!/bin/bash
+# Auto-generated post-commit hook for CI monitoring
+# Triggers CI monitoring after successful push
+
+LAST_COMMAND=$(history | tail -1)
+if [[ "$LAST_COMMAND" =~ "git push" ]]; then
+    # Run CI monitor in background to not block user
+    nohup ./scripts/post-push-ci-monitor.sh > /dev/null 2>&1 &
+fi
+EOF
+            chmod +x .git/hooks/post-commit
+            print_success "Installed post-commit CI monitoring hook"
+        fi
+        
+        print_info "CI monitoring will run automatically after push"
+    fi
+    
+    echo ""
+    print_info "📋 After push completion:"
+    print_info "  • CI monitoring will track build status"
+    print_info "  • Create PR if none exists: gh pr create --base main --head dev"  
+    print_info "  • Work is NOT complete until CI passes ✅"
+    print_info "  • View CI status: gh pr checks <PR_NUMBER>"
+fi
+
+print_success "Pre-push checks completed successfully"
+exit 0

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://raw.githubusercontent.com/DanMarshall909/workflow/main/schemas/config.schema.json",
+  "project": {
+    "name": "Anchor",
+    "type": "dotnet-web-api",
+    "language": "csharp",
+    "framework": "dotnet8",
+    "description": "Privacy-first ADHD productivity application"
+  },
+  "git": {
+    "defaultBranch": "main",
+    "developmentBranch": "dev",
+    "allowFeatureBranches": false,
+    "enforceConventionalCommits": true,
+    "requireSafeCommit": true,
+    "autoCommitOnCoverage": true,
+    "maxCommitMessageLength": 72
+  },
+  "quality": {
+    "testCoverage": {
+      "minimumBranch": 95,
+      "minimumLine": 90,
+      "failBelowMinimum": true
+    },
+    "mutationTesting": {
+      "enabled": true,
+      "minimumKillRate": 85,
+      "failBelowMinimum": true
+    },
+    "codeAnalysis": {
+      "enabled": true,
+      "maxIssues": 10,
+      "treatWarningsAsErrors": false
+    },
+    "formatting": {
+      "enforceOnCommit": true,
+      "autoFixOnSave": true
+    }
+  },
+  "adhd": {
+    "breakReminders": {
+      "enabled": true,
+      "intervalMinutes": 25,
+      "enforceBreaks": true,
+      "skipOnHyperfocus": true
+    },
+    "tddEnforcement": {
+      "enabled": true,
+      "requireRedGreenRefactor": true,
+      "allowSkipForDocs": true,
+      "allowSkipForConfig": true
+    },
+    "progressTracking": {
+      "enabled": true,
+      "showCycleStats": true,
+      "motivationalMessages": true
+    }
+  },
+  "privacy": {
+    "piiDetection": {
+      "enabled": true,
+      "scanCommits": true,
+      "scanCode": true,
+      "blockOnDetection": true
+    },
+    "dataMinimization": {
+      "warnOnPersonalData": true,
+      "requireDataJustification": false
+    }
+  },
+  "ci": {
+    "localFirst": true,
+    "runBeforeCommit": true,
+    "timeoutSeconds": 30,
+    "freeTierOptimized": true,
+    "cacheResults": true
+  },
+  "notifications": {
+    "emoji": true,
+    "colors": true,
+    "sound": false,
+    "desktop": false
+  },
+  "integrations": {
+    "githubCli": true,
+    "docker": true,
+    "vscode": true
+  },
+  "customCommands": {
+    "test": "dotnet test",
+    "build": "dotnet build",
+    "format": "dotnet format",
+    "lint": "dotnet format --verify-no-changes",
+    "coverage": "dotnet test --collect:\"XPlat Code Coverage\"",
+    "mutation": "dotnet stryker",
+    "localCi": "./scripts/local-ci.sh",
+    "qualityCheck": "./scripts/pr-quality-check.sh"
+  },
+  "features": {
+    "tddCycleEnforcement": true,
+    "adhdBreakSystem": true,
+    "privacyGuards": true,
+    "qualityGates": true,
+    "progressTracking": true,
+    "smartCommits": true
+  }
+}

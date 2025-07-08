@@ -1,0 +1,89 @@
+#!/bin/bash
+# Configurable pre-commit hook
+# Enforces safe-commit usage based on project configuration
+
+# Load configuration
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+if [[ -f "$PROJECT_ROOT/.workflow/config-loader.sh" ]]; then
+    source "$PROJECT_ROOT/.workflow/config-loader.sh"
+    load_all_config >/dev/null 2>&1
+else
+    # Fallback defaults
+    export GIT_REQUIRE_SAFE_COMMIT="true"
+    export NOTIF_EMOJI="true"
+fi
+
+# Output functions
+if [[ "${NOTIF_EMOJI:-true}" == "true" ]]; then
+    warn_icon="⚠️ "
+    shield_icon="🛡️ "
+    cancel_icon="❌"
+    bullet="•"
+else
+    warn_icon="[WARNING] "
+    shield_icon="[SAFE-COMMIT] "
+    cancel_icon="[CANCELLED]"
+    bullet="*"
+fi
+
+# Check if this is a safe-commit.sh initiated commit
+if [[ -n "${SAFE_COMMIT_ACTIVE:-}" ]]; then
+    # safe-commit.sh handles all checks, just allow the commit
+    exit 0
+fi
+
+# Check configuration for safe-commit requirement
+if [[ "${GIT_REQUIRE_SAFE_COMMIT:-true}" == "false" ]]; then
+    # Configuration allows direct commits, run basic checks only
+    if [[ -f "$PROJECT_ROOT/scripts/privacy-guard.sh" ]]; then
+        "$PROJECT_ROOT/scripts/privacy-guard.sh" staged
+    fi
+    exit 0
+fi
+
+echo "${warn_icon}Direct git commit detected!"
+echo ""
+echo "${shield_icon}For best results, use the safe commit script:"
+echo "   ./scripts/safe-commit.sh \"your commit message\""
+echo ""
+echo "This ensures:"
+echo "  $bullet ADHD break enforcement"
+echo "  $bullet TDD cycle completion"
+echo "  $bullet Code quality checks"
+echo "  $bullet PII/security scanning"
+echo "  $bullet Proper commit format"
+echo ""
+
+# Check if in CI environment
+if [[ -n "${CI:-}" || -n "${GITHUB_ACTIONS:-}" || -n "${BUILD_ID:-}" ]]; then
+    echo "CI environment detected - allowing direct commit"
+    exit 0
+fi
+
+echo "Continue with direct commit anyway? (y/N): "
+read -r response
+
+if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    echo "${cancel_icon} Commit cancelled - use safe-commit.sh for best experience"
+    exit 1
+fi
+
+echo "⚠️  Proceeding with basic checks only..."
+
+# Basic formatting check
+if command -v dotnet &> /dev/null; then
+    if ! dotnet format --verify-no-changes --verbosity quiet; then
+        echo "❌ Code formatting violations found"
+        echo "Fix with: dotnet format"
+        exit 1
+    fi
+fi
+
+# Basic PII check
+if [[ -f "./scripts/privacy-guard.sh" ]]; then
+    if ! ./scripts/privacy-guard.sh staged; then
+        exit 1
+    fi
+fi
+
+echo "✅ Basic pre-commit checks passed"
